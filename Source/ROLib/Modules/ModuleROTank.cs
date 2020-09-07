@@ -48,6 +48,9 @@ namespace ROLib
         [KSPField] public string noseInterstageNode = "noseinterstage";
         [KSPField] public string mountInterstageNode = "mountinterstage";
 
+        [KSPField] public bool validateNose = false;
+        [KSPField] public bool validateMount = false;
+
         /// <summary>
         /// The current user selected diamater of the part.  Drives the scaling and positioning of everything else in the model.
         /// </summary>
@@ -224,6 +227,8 @@ namespace ROLib
 
         internal void ModelChangedHandler(bool pushNodes)
         {
+            if (validateNose || validateMount)
+                ValidateModules();
             ValidateLength();
             UpdateModulePositions();
             UpdateTankVolume(lengthWidth);
@@ -385,7 +390,10 @@ namespace ROLib
             noseModule = new ROLModelModule<ModuleROTank>(part, this, ROLUtils.GetRootTransform(part, "ModularPart-NOSE"), ModelOrientation.TOP, nameof(currentNose), null, nameof(currentNoseTexture), nameof(noseModulePersistentData));
             noseModule.name = "ModuleROTank-Nose";
             noseModule.getSymmetryModule = m => m.noseModule;
-            noseModule.getValidOptions = () => noseDefs;
+            if (validateNose)
+                noseModule.getValidOptions = () => noseModule.getValidUpperModels(noseDefs, noseModule.orientation, noseNodeNames, string.Empty);
+            else
+                noseModule.getValidOptions = () => noseDefs;
 
             coreModule = new ROLModelModule<ModuleROTank>(part, this, ROLUtils.GetRootTransform(part, "ModularPart-CORE"), ModelOrientation.CENTRAL, nameof(currentCore), null, nameof(currentCoreTexture), nameof(coreModulePersistentData));
             coreModule.name = "ModuleROTank-Core";
@@ -395,7 +403,10 @@ namespace ROLib
             mountModule = new ROLModelModule<ModuleROTank>(part, this, ROLUtils.GetRootTransform(part, "ModularPart-MOUNT"), ModelOrientation.BOTTOM, nameof(currentMount), null, nameof(currentMountTexture), nameof(mountModulePersistentData));
             mountModule.name = "ModuleROTank-Mount";
             mountModule.getSymmetryModule = m => m.mountModule;
-            mountModule.getValidOptions = () => mountDefs;
+            if (validateMount)
+                mountModule.getValidOptions = () => mountModule.getValidLowerModels(mountDefs, mountModule.orientation, mountNodeNames, string.Empty);
+            else
+                mountModule.getValidOptions = () => mountDefs;
 
             noseModule.volumeScalar = volumeScalingPower;
             coreModule.volumeScalar = volumeScalingPower;
@@ -408,6 +419,9 @@ namespace ROLib
             coreModule.setupModel();
             noseModule.setupModel();
             mountModule.setupModel();
+
+            if (validateNose || validateMount)
+                ValidateModules();
         }
 
         /// <summary>
@@ -479,6 +493,31 @@ namespace ROLib
 
             if (HighLogic.LoadedSceneIsEditor)
                 GameEvents.onEditorShipModified.Add(OnEditorVesselModified);
+        }
+
+        /// <summary>
+        /// Validate the currently selected models, and select update any that are found to be invalid by setting to the first usable option form their model list.<para/>
+        /// </summary>
+        private void ValidateModules()
+        {
+            //core module is automatically 'valid' -- don't touch it.
+            //but do need to validate upper+nose, and lower+mount
+            //as well as validating the solar/RCS (parent position + enabled/disbled status)
+
+            // Validate Nose Model
+            if (validateNose && !coreModule.isValidUpper(noseModule))
+            {
+                ROLModelDefinition def = coreModule.findFirstValidUpper(noseModule);
+                if (def == null) { error("Could not locate valid definition for NOSE"); }
+                noseModule.modelSelected(def.name);
+            }
+            // Validate Mount Model
+            if (validateMount && !coreModule.isValidLower(mountModule))
+            {
+                ROLModelDefinition def = coreModule.findFirstValidLower(mountModule);
+                if (def == null) { error("Could not locate valid definition for MOUNT"); }
+                mountModule.modelSelected(def.name);
+            }
         }
 
         private void OnModelSelectionChanged(BaseField f, object o)

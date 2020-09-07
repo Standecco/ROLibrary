@@ -232,6 +232,32 @@ namespace ROLib
         public readonly ModelRCSModuleData rcsModuleData;
 
         /// <summary>
+        /// Denotes what type of mounting this part has on its upper attach point (top of model).<para/>
+        /// These values are checked vs. the 'compatibleLowerProfiles' of the part being attached to this one (and vise-versa).<para/>
+        /// The target must accept -all- of the upper profiles specified in this model, or it will not be available as a valid option.
+        /// </summary>
+        public readonly string[] upperProfiles;
+
+        /// <summary>
+        /// Denotes what type of mounting this part has on its lower attach point (bottom of model).<para/>
+        /// These values are checked vs. the 'compatibleUpperProfiles' of the part being attached to this one (and vise-versa).<para/>
+        /// The target must accept -all- of the upper profiles specified in this model, or it will not be available as a valid option.
+        /// </summary>
+        public readonly string[] lowerProfiles;
+
+        /// <summary>
+        /// List of profiles that this model is compatible with.  May contain multiple profile definitions.<para/>
+        /// The compatible profiles must contain -all- of the profiles from the input list, but the compatible list may contain extras.
+        /// </summary>
+        public readonly string[] compatibleUpperProfiles;
+
+        /// <summary>
+        /// List of profiles that this model is compatible with.  May contain multiple profile definitions.<para/>
+        /// The compatible profiles must contain -all- of the profiles from the input list, but the compatible list may contain extras.
+        /// </summary>
+        public readonly string[] compatibleLowerProfiles;
+
+        /// <summary>
         /// Construct the model definition from the data in the input ConfigNode.<para/>
         /// All data constructs MUST conform to the expected format (see documentation), or things will not load properly and the model will likely not work as expected.
         /// </summary>
@@ -283,6 +309,15 @@ namespace ROLib
 
             orientation = (ModelOrientation)Enum.Parse(typeof(ModelOrientation), node.ROLGetStringValue("orientation", ModelOrientation.TOP.ToString()));
             invertAxis = node.ROLGetVector3("invertAxis", invertAxis);
+
+            if (node.HasValue("upperProfile"))
+                upperProfiles = node.GetStringValues("upperProfile");
+            if (node.HasValue("lowerProfile"))
+                lowerProfiles = node.GetStringValues("lowerProfile");
+            if (node.HasValue("compatibleUpperProfile"))
+                compatibleUpperProfiles = node.GetStringValues("compatibleUpperProfile");
+            if (node.HasValue("compatibleLowerProfile"))
+                compatibleLowerProfiles = node.GetStringValues("compatibleLowerProfile");
 
             //load sub-model definitions
             ConfigNode[] subModelNodes = node.GetNodes("SUBMODEL");
@@ -409,6 +444,26 @@ namespace ROLib
         }
 
         /// <summary>
+        /// Return the list of lower-attachment profiles if the model is used in the input orientation
+        /// </summary>
+        /// <param name="orientation"></param>
+        /// <returns></returns>
+        public string[] getLowerProfiles(ModelOrientation orientation)
+        {
+            return shouldInvert(orientation) ? upperProfiles : lowerProfiles;
+        }
+
+        /// <summary>
+        /// Return the list of upper-attachment profiles if the model is used in the input orientation
+        /// </summary>
+        /// <param name="orientation"></param>
+        /// <returns></returns>
+        public string[] getUpperProfiles(ModelOrientation orientation)
+        {
+            return shouldInvert(orientation) ? lowerProfiles : upperProfiles;
+        }
+
+        /// <summary>
         /// Return true/false if this model definition is available given the input 'part upgrades' list.  Checks versus the 'upgradeUnlock' specified in the model definition config.
         /// </summary>
         /// <param name="partUpgrades"></param>
@@ -451,6 +506,102 @@ namespace ROLib
         internal bool shouldInvert(ModelOrientation orientation)
         {
             return (orientation == ModelOrientation.BOTTOM && this.orientation == ModelOrientation.TOP) || (orientation == ModelOrientation.TOP && this.orientation == ModelOrientation.BOTTOM);
+        }
+
+        /// <summary>
+        /// Returns true/false if every value in 'profiles' is present in 'compatible'.
+        /// If even a single value from 'profiles' is not found in 'compatible', return false.
+        /// </summary>
+        /// <param name="compatible"></param>
+        /// <param name="profiles"></param>
+        /// <returns></returns>
+        private bool canAttach(string[] compatible, string[] profiles)
+        {
+            bool foundAll = true;
+            int len = profiles.Length;
+            int len2 = compatible.Length;
+            string prof;
+            for (int i = 0; i < len; i++)
+            {
+                prof = profiles[i];
+                if (!compatible.Contains(prof))
+                {
+                    foundAll = false;
+                    break;
+                }
+            }
+            return foundAll;
+        }
+
+        /// <summary>
+        /// Return if the input profiles are compatible with being mounted on the bottom of this model when this model is used in the input orientation.<para/>
+        /// E.G. If model specified orientation==TOP, but being used for 'BOTTOM', will actually check the 'upper' profiles list (as that is the attach point that is at the bottom of the model when inverted)
+        /// </summary>
+        /// <param name="profiles"></param>
+        /// <param name="orientation"></param>
+        /// <returns></returns>
+        internal bool isValidLowerProfile(string[] profiles, ModelOrientation orientation)
+        {
+            return shouldInvert(orientation) ? canAttach(compatibleUpperProfiles, profiles) : canAttach(compatibleLowerProfiles, profiles);
+        }
+
+        /// <summary>
+        /// Return if the input profiles are compatible with being mounted on the top of this model when this model is used in the input orientation.<para/>
+        /// E.G. If model specified orientation==TOP, but being used for 'BOTTOM', will actually check the 'upper' profiles list (as that is the attach point that is at the bottom of the model when inverted)
+        /// </summary>
+        /// <param name="profiles"></param>
+        /// <param name="orientation"></param>
+        /// <returns></returns>
+        internal bool isValidUpperProfile(string[] profiles, ModelOrientation orientation)
+        {
+            return shouldInvert(orientation) ? canAttach(compatibleLowerProfiles, profiles) : canAttach(compatibleUpperProfiles, profiles);
+        }
+
+        /// <summary>
+        /// Checks to see if this definition can be switched to given the currently occupied attach nodes
+        /// </summary>
+        /// <param name="part"></param>
+        /// <param name="bodyNodeNames"></param>
+        /// <param name="orientation"></param>
+        /// <param name="endNodeName"></param>
+        /// <returns></returns>
+        public bool canSwitchTo(Part part, string[] bodyNodeNames, ModelOrientation orientation, bool top, string endNodeName)
+        {
+            AttachNode node;
+            bool valid = true;
+            if (!string.IsNullOrEmpty(endNodeName))//this def is responsible for top/bottom attach node
+            {
+                //attach node from the part
+                node = part.FindAttachNode(endNodeName);
+                //if attachnode==null or nothing attached, does not currently exist, so it doesn't matter what the model def has setup
+                if (node != null && node.attachedPart != null)
+                {
+                    //node is not null, and has attached part.  Check model def to make sure it has a node data, else set valid to false
+                    //determine if top or bottom from input orientation and def orientation
+                    //if node data==null, it means def does not support that end node
+                    AttachNodeBaseData nodeData = top ? (shouldInvert(orientation) ? bottomNodeData : topNodeData) : (shouldInvert(orientation) ? topNodeData : bottomNodeData);
+                    if (nodeData == null) { valid = false; }
+                }
+            }
+            //if already invalid, or has no body node names to manage, return the current 'valid' value
+            if (!valid || bodyNodeNames == null || bodyNodeNames.Length == 0) { return valid; }//break
+            int len = bodyNodeNames.Length;
+            for (int i = 0; i < len; i++)
+            {
+                //attach node from the part
+                node = part.FindAttachNode(bodyNodeNames[i]);
+                //if attachnode==null or nothing attached, does not currently exist, so it doesn't matter what the model def has setup
+                if (node != null && node.attachedPart != null)
+                {
+                    //this is a node with a part attached, so we need at least one node present in model-def body node array,
+                    if (bodyNodeData == null || bodyNodeData.Length == 0 || i >= bodyNodeData.Length)
+                    {
+                        valid = false;
+                        break;
+                    }
+                }
+            }
+            return valid;
         }
 
         public override string ToString() => $"ModelDef[ {name} ]";

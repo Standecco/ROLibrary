@@ -9,10 +9,10 @@ namespace ROLib
     public static class ROLModInterop
     {
         private static bool initialized = false;
-        private static Assembly FARAssembly, RFAssembly, MFTAssembly, SolverEnginesAssembly;
+        private static Assembly FARAssembly, RFAssembly, MFTAssembly, SolverEnginesAssembly, DREAssembly;
         private static MethodInfo MFTChangeTotalVolumeMI, MFTCalculateMassMI;
         private static PropertyInfo SolverEnginesTempPI;
-        private static Type MFTType, SolverEngineType;
+        private static Type MFTType, SolverEngineType, DREType;
 
         public static void UpdateResourceVolume(Part part)
         {
@@ -124,6 +124,7 @@ namespace ROLib
             RFAssembly = AssemblyLoader.loadedAssemblies.FirstOrDefault(a => a.assembly.GetName().Name == "RealFuels")?.assembly;
             MFTAssembly = AssemblyLoader.loadedAssemblies.FirstOrDefault(a => a.assembly.GetName().Name == "modularFuelTanks")?.assembly;
             SolverEnginesAssembly = AssemblyLoader.loadedAssemblies.FirstOrDefault(a => a.assembly.GetName().Name == "SolverEngines")?.assembly;
+            DREAssembly = AssemblyLoader.loadedAssemblies.FirstOrDefault(a => a.assembly.GetName().Name == "DeadlyReentry")?.assembly;
             if (RFAssembly is Assembly || MFTAssembly is Assembly)
             {
                 string targ = RFAssembly is Assembly ? "RealFuels.Tanks.ModuleFuelTanks,RealFuels" : "RealFuels.Tanks.ModuleFuelTanks,modularFuelTanks";
@@ -135,6 +136,10 @@ namespace ROLib
             {
                 SolverEngineType = Type.GetType("SolverEngines.ModuleEnginesSolver,SolverEngines");
                 SolverEnginesTempPI = SolverEngineType?.GetProperty("GetEngineTemp");
+            }
+            if (DREAssembly is Assembly)
+            {
+
             }
         }
 

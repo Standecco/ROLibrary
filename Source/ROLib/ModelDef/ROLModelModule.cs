@@ -3,6 +3,7 @@ using System.Linq;
 using UnityEngine;
 using KSPShaderTools;
 using static ROLib.ROLLog;
+using System.Collections.Generic;
 
 namespace ROLib
 {
@@ -952,41 +953,131 @@ namespace ROLib
         private string GetErrorReportModuleName() =>
             $"ModelModule: [{name}] model: [{definition}] in orientation: [{orientation}] in module: {partModule} in part: {part}";
 
+        #endregion ENDREGION - Private/Internal methods
+
         /// <summary>
-        /// Return the X and Y mounting positions for an RCS model-module slot parented to -this- model-module.
+        /// Return an array with containing the models that are valid options for use as upper-adapters for the currently
+        /// selected/enabled model definition.
         /// </summary>
-        /// <param name="vPos"></param>
-        /// <param name="upper"></param>
-        /// <param name="radius"></param>
-        /// <param name="posY"></param>
-        public void GetRCSMountingValues(float vPos, bool upper, out float radius, out float posY)
+        /// <param name="inputOptions"></param>
+        /// <returns></returns>
+        public ModelDefinitionLayoutOptions[] getValidUpperModels(ModelDefinitionLayoutOptions[] inputOptions, ModelOrientation otherModelOrientation, string[] bodyNodeNames, string endNodeName)
         {
-            bool invert = definition.shouldInvert(orientation);
-            posY = 0;
-            //if (invert) { upper = !upper; }
-            if (definition.rcsPositionData != null)
+            List<ModelDefinitionLayoutOptions> validDefs = new List<ModelDefinitionLayoutOptions>();
+            ModelDefinitionLayoutOptions def;
+            int len = inputOptions.Length;
+            for (int i = 0; i < len; i++)
             {
-                ModelAttachablePositionData mapd;
-                if (upper)//always 0th index in config
+                def = inputOptions[i];
+                if (definition.isValidUpperProfile(def.definition.getLowerProfiles(otherModelOrientation), orientation) && def.definition.canSwitchTo(part, bodyNodeNames, otherModelOrientation, true, endNodeName))
                 {
-                    mapd = definition.rcsPositionData[0];
+                    validDefs.Add(def);
                 }
-                else//if both positions specified, will always be 1st index, else 0th
-                {
-                    // Lower definition [1] if defined, otherwise default to  Upper definition [0]
-                    int index = definition.rcsPositionData.Length > 1 ? 1 : 0;
-                    mapd = definition.rcsPositionData[index];
-                }
-                mapd.GetModelPosition(moduleHorizontalScale, moduleVerticalScale, vPos, invert, out radius, out posY);
             }
-            else
-            {
-                radius = moduleDiameter * 0.5f;
-            }
-            posY += modulePosition + GetPlacementOffset();
+            return validDefs.ToArray();
         }
 
-        #endregion ENDREGION - Private/Internal methods
+        /// <summary>
+        /// Return an array with containing the models that are valid options for use as lower-adapters for the currently
+        /// selected/enabled model definition.
+        /// </summary>
+        /// <param name="defs"></param>
+        /// <returns></returns>
+        public ModelDefinitionLayoutOptions[] getValidLowerModels(ModelDefinitionLayoutOptions[] defs, ModelOrientation otherModelOrientation, string[] bodyNodeNames, string endNodeName)
+        {
+            List<ModelDefinitionLayoutOptions> validDefs = new List<ModelDefinitionLayoutOptions>();
+            ModelDefinitionLayoutOptions def;
+            int len = defs.Length;
+            for (int i = 0; i < len; i++)
+            {
+                def = defs[i];
+                if (definition.isValidLowerProfile(def.definition.getUpperProfiles(otherModelOrientation), orientation) && def.definition.canSwitchTo(part, bodyNodeNames, otherModelOrientation, false, endNodeName))
+                {
+                    validDefs.Add(def);
+                }
+            }
+            return validDefs.ToArray();
+        }
+
+        /// <summary>
+        /// Returns if the input model definition is valid for being attached to the upper of this module, using the input orientation for the input definition
+        /// </summary>
+        /// <param name="def"></param>
+        /// <param name="otherModelOrientation"></param>
+        /// <returns></returns>
+        public bool isValidUpper(ROLModelDefinition def, ModelOrientation otherModelOrientation)
+        {
+            return definition.isValidUpperProfile(def.getLowerProfiles(otherModelOrientation), orientation);
+        }
+
+        /// <summary>
+        /// Return if the input model-module is configured properly to be used as an upper attach option for this current modules configuration.
+        /// </summary>
+        /// <param name="module"></param>
+        /// <returns></returns>
+        public bool isValidUpper(ROLModelModule<U> module)
+        {
+            return isValidUpper(module.definition, module.orientation);
+        }
+
+        /// <summary>
+        /// Returns if the input model definition is vaild for being attached to the lower of this module, using the input orientation for the input definition
+        /// </summary>
+        /// <param name="def"></param>
+        /// <param name="otherModelOrientation"></param>
+        /// <returns></returns>
+        public bool isValidLower(ROLModelDefinition def, ModelOrientation otherModelOrientation)
+        {
+            return definition.isValidLowerProfile(def.getUpperProfiles(otherModelOrientation), orientation);
+        }
+
+        /// <summary>
+        /// Return if the input model-module is configured properly to be used as a lower attach option for this current modules configuration.
+        /// </summary>
+        /// <param name="module"></param>
+        /// <returns></returns>
+        public bool isValidLower(ROLModelModule<U> module)
+        {
+            return isValidLower(module.definition, module.orientation);
+        }
+
+        /// <summary>
+        /// Returns the first model found from the input module that is valid to be used for an upper attachment for this module
+        /// </summary>
+        /// <param name="module"></param>
+        /// <returns></returns>
+        public ROLModelDefinition findFirstValidUpper(ROLModelModule<U> module)
+        {
+            int len = module.optionsCache.Length;
+            for (int i = 0; i < len; i++)
+            {
+                if (isValidUpper(module.optionsCache[i].definition, module.orientation))
+                {
+                    return module.optionsCache[i].definition;
+                }
+            }
+            error("Could not locate any valid upper modules matching def: " + definition);
+            return null;
+        }
+
+        /// <summary>
+        /// Returns the first model found from the input module that is valid to be used for a lower attachment for this module
+        /// </summary>
+        /// <param name="module"></param>
+        /// <returns></returns>
+        public ROLModelDefinition findFirstValidLower(ROLModelModule<U> module)
+        {
+            int len = module.optionsCache.Length;
+            for (int i = 0; i < len; i++)
+            {
+                if (isValidLower(module.optionsCache[i].definition, module.orientation))
+                {
+                    return module.optionsCache[i].definition;
+                }
+            }
+            error("Could not locate any valid lower modules matching def: " + definition);
+            return null;
+        }
 
     }
 }
